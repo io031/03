@@ -109,11 +109,22 @@ button{ font:inherit; color:inherit; border:0; background:none; padding:0; margi
 .poster-x{ position:absolute; top:6px; right:6px; width:30px; height:30px; border-radius:15px; font-size:18px; line-height:1; display:flex; align-items:center; justify-content:center; }
 .memo{ margin-top:16px; padding:14px 16px; border-radius:24px; }
 .memo .lbl{ margin-bottom:6px; }
-.memo textarea{
-  display:block; width:100%; height:120px; margin:0; padding:0; border:0; outline:0; border-radius:0;
+textarea.autosize{
+  display:block; width:100%; margin:0; padding:0; border:0; outline:0; border-radius:0; overflow:hidden;
   background:transparent; color:var(--text); font:inherit; font-size:16px; line-height:24px; resize:none; -webkit-appearance:none;
 }
-.memo textarea::placeholder{ color:var(--sub); }
+textarea.autosize::placeholder{ color:var(--sub); }
+
+/* 졸업 후기: 처음/가장 좋았던/마지막 테마 칸 */
+.gradslot{ padding:16px; border-radius:22px; margin-top:12px; }
+.gs-head{ display:flex; align-items:center; justify-content:space-between; gap:10px; margin-bottom:10px; }
+.gs-head .lbl{ margin:0; }
+.gs-head .pick{ font-size:14px; font-weight:600; color:var(--green); text-align:right; }
+.gs-body{ display:flex; gap:12px; }
+.gs-poster{ flex:none; width:64px; height:94px; border-radius:12px; overflow:hidden; background:var(--poster); }
+.gs-poster img{ width:100%; height:100%; object-fit:cover; display:block; }
+.gs-body textarea.autosize{ flex:1; min-width:0; }
+.grad-date{ display:block; margin:-4px 0 2px; font-size:13px; color:var(--sub); }
 
 /* + 버튼 & 추가 시트 */
 .plus{ width:36px; height:36px; border-radius:18px; justify-self:end; display:flex; align-items:center; justify-content:center; font-size:26px; font-weight:300; line-height:1; padding-bottom:3px; }
@@ -305,6 +316,16 @@ function saveData(){
 const getBrands = () => store.brands;
 /* 회사의 테마를 모두 클리어하면 회사도 초록색 */
 const brandDone = b => b.themes.length > 0 && b.themes.every(t => getRecord(b.id, t.id).played);
+/* 졸업 후기: getRecord/setRecord를 그대로 재사용하되, 업체id를 '가짜 테마id'인 'grad/브랜드id' 자리로 사용합니다 */
+function getGrad(brandId){
+  const r = getRecord('grad', brandId);
+  return { rating:r.rating || 0, review:r.review || '', gradedAt:r.gradedAt || '',
+    firstThemeId:r.firstThemeId || '', firstNote:r.firstNote || '',
+    bestThemeId:r.bestThemeId || '', bestNote:r.bestNote || '',
+    lastThemeId:r.lastThemeId || '', lastNote:r.lastNote || '' };
+}
+function setGrad(brandId, patch){ return setRecord('grad', brandId, patch); }
+const GRAD_SLOTS = [ { key:'first', label:'처음 플레이한 테마' }, { key:'best', label:'가장 좋았던 테마' }, { key:'last', label:'마지막 테마' } ];
 const newId = p => p + Date.now().toString(36) + Math.random().toString(36).slice(2, 5);
 
 /* ============================================================
@@ -384,6 +405,73 @@ function rankView(){
     '<div class="list">' + top + '</div>' + (rest ? '<div class="list">' + rest + '</div>' : '');
 }
 
+/* 졸업 후기 화면: 사진 + 별점(업체 전체 만족도, 테마 별점과는 별개) + 후기 + 처음/최고/마지막 테마 */
+function gradView(brand){
+  const g = getGrad(brand.id);
+  const img = posterCache['grad/' + brand.id] || '';
+  const pick = id => brand.themes.find(t => t.id === id);
+  const slot = function(cfg){
+    const th = pick(g[cfg.key + 'ThemeId']);
+    const posterImg = th ? (posterCache[brand.id + '/' + th.id] || getRecord(brand.id, th.id).poster || th.image || '') : '';
+    return '<section class="glass gradslot">' +
+      '<div class="gs-head"><span class="lbl">' + esc(cfg.label) + '</span>' +
+        '<button class="press pick" data-act="gradpick" data-slot="' + cfg.key + '">' + (th ? esc(th.name) : '테마 선택') + ' ›</button></div>' +
+      '<div class="gs-body">' +
+        '<span class="gs-poster">' + (posterImg ? '<img src="' + esc(posterImg) + '" alt="">' : '') + '</span>' +
+        '<textarea class="autosize" rows="1" maxlength="1000" data-notekey="' + cfg.key + 'Note" placeholder="이 테마에 대한 이야기를 적어보세요">\n' + esc(g[cfg.key + 'Note']) + '</textarea>' +
+      '</div></section>';
+  };
+  return nav(brand.name + ' 졸업') +
+    '<section class="glass card" id="gcard">' +
+      '<div class="poster-wrap"><label class="poster press">' +
+        (img ? '<img src="' + esc(img) + '" alt="졸업 사진">' : '<span class="ph"><b>＋</b>사진 추가</span>') +
+        '<input class="file" id="gradPhotoInput" type="file" accept="image/*"></label>' +
+        (img ? '<button class="poster-x glass press" data-act="rmgradphoto" aria-label="사진 삭제">×</button>' : '') +
+      '</div>' +
+      '<div class="info">' +
+        '<h2>' + esc(brand.name) + '</h2>' +
+        (g.gradedAt ? '<span class="grad-date">' + esc(g.gradedAt) + ' 졸업</span>' : '') +
+        '<div><div class="lbl">별점<b id="gradVal"' + (g.rating ? '' : ' class="hint"') + '>' + fmtStar(g.rating) + '</b></div>' +
+          '<button class="rate-btn" id="gradStars" data-act="graderate" aria-label="졸업 별점 정하기">' + starsRow(g.rating) + '</button></div>' +
+      '</div>' +
+    '</section>' +
+    '<section class="glass memo"><div class="lbl">후기</div>' +
+      '<textarea class="autosize" rows="1" maxlength="2000" data-notekey="review" placeholder="졸업 소감을 남겨보세요">\n' + esc(g.review) + '</textarea></section>' +
+    GRAD_SLOTS.map(slot).join('');
+}
+
+/* 졸업 순위: 졸업한 업체를 졸업 별점 높은 순으로 (테마 순위표와는 별개 목록) */
+function gradRanked(){
+  const list = [];
+  getBrands().forEach(function(b){
+    if (!brandDone(b)) return;
+    const g = getGrad(b.id);
+    if (g.rating > 0) list.push({ b:b, d:g.rating, no:0 });
+  });
+  list.sort((x, y) => y.d - x.d);
+  let prev = 0, no = 0;
+  list.forEach(function(it, i){ if (it.d !== prev) { no = i + 1; prev = it.d; } it.no = no; });
+  return list;
+}
+function gradRankView(){
+  const list = gradRanked();
+  const medal = n => n === 1 ? ' gold' : n === 2 ? ' silver' : n === 3 ? ' bronze' : '';
+  const head = topBar('') + '<h1 class="page-title">졸업 순위</h1><p class="sub-note">졸업 별점 높은 순 · 같은 별점은 공동 순위</p>';
+  if (!list.length) return head + '<div class="glass empty">아직 졸업한 회사가 없어요<br>업체의 테마를 모두 클리어하면 졸업 후기를 남길 수 있어요</div>';
+  const top = list.slice(0, 3).map(function(it){
+    const img = posterCache['grad/' + it.b.id] || '';
+    return '<button class="glass press top' + medal(it.no) + (it.no === 1 ? ' r1' : '') + '" data-gb="' + esc(it.b.id) + '">' +
+      '<span class="tp">' + (img ? '<img src="' + esc(img) + '" alt="">' : '') + '</span>' +
+      '<span class="tt"><span class="no">' + it.no + '</span><span class="nm">' + esc(it.b.name) + '</span>' +
+      '<span class="st">' + starsRow(it.d) + '</span></span></button>';
+  }).join('');
+  const rest = list.slice(3).map(it =>
+    '<button class="glass press rank' + medal(it.no) + '" data-gb="' + esc(it.b.id) + '">' +
+      '<span class="no">' + it.no + '</span><span class="txt"><span class="nm">' + esc(it.b.name) + '</span></span>' +
+      '<span class="st">' + starsRow(it.d) + '</span></button>').join('');
+  return head + '<div class="list">' + top + '</div>' + (rest ? '<div class="list">' + rest + '</div>' : '');
+}
+
 function homeView(){
   return topBar('<button class="glass press back-btn pill" data-act="backup">백업</button>' + plusBtn('add-brand', '회사 추가')) +
     '<div class="home"><h1>기록</h1><div class="list">' +
@@ -392,13 +480,14 @@ function homeView(){
 }
 
 function brandView(brand){
+  const gradBtn = brandDone(brand) ? '<button class="glass press item done" data-act="grad">졸업 후기</button>' : '';
   const items = brand.themes.length
     ? brand.themes.map(t => {
         const done = getRecord(brand.id, t.id).played;
         return '<button class="glass press item' + (done ? ' done' : '') + '" data-theme="' + esc(t.id) + '">' + esc(t.name) + '</button>';
       }).join('')
     : '<div class="glass empty">등록된 테마가 없어요<br>오른쪽 위 + 버튼으로 추가해 보세요</div>';
-  return nav('', plusBtn('add-theme', '테마 추가')) + '<h1 class="page-title">' + esc(brand.name) + '</h1><div class="list">' + items + '</div>';
+  return nav('', plusBtn('add-theme', '테마 추가')) + '<h1 class="page-title">' + esc(brand.name) + '</h1><div class="list">' + gradBtn + items + '</div>';
 }
 
 /* 별 표시: 0.5점 단위. 별마다 왼쪽 0 / 절반 / 전체를 잘라서 칠합니다 */
@@ -440,7 +529,7 @@ function themeView(brand, theme){
       '</div>' +
     '</section>' +
     '<section class="glass memo"><div class="lbl">후기</div>' +
-      '<textarea id="memo" rows="5" maxlength="2000" placeholder="후기를 남겨보세요">\n' + esc(r.memo) + '</textarea></section>';
+      '<textarea id="memo" class="autosize" rows="1" maxlength="2000" placeholder="후기를 남겨보세요">\n' + esc(r.memo) + '</textarea></section>';
 }
 
 function render(isBack, still){
@@ -452,11 +541,15 @@ function render(isBack, still){
   if (cur.view === 'brand' && brand) html = brandView(brand);
   else if (cur.view === 'theme' && brand && theme) html = themeView(brand, theme);
   else if (cur.view === 'rank') html = rankView();
+  else if (cur.view === 'grad' && brand && brandDone(brand)) html = gradView(brand);
+  else if (cur.view === 'gradrank') html = gradRankView();
   else { stack = [{ view:'home' }]; html = homeView(); }   // 예외 시 항상 첫 화면으로 복구
 
   app.innerHTML = '<div class="view' + (isBack ? ' back' : '') + (still ? ' still' : '') + '">' + html + '</div>';
   if (!still) window.scrollTo(0, 0);
+  document.querySelectorAll('.autosize').forEach(autosizeEl);
 }
+function autosizeEl(el){ el.style.height = 'auto'; el.style.height = el.scrollHeight + 'px'; }
 
 /* ============================================================
    EVENTS (한 곳에서 처리)
@@ -477,7 +570,19 @@ app.addEventListener('click', function(e){
   if (t.dataset.act === 'add-theme') return openSheet('테마 추가', '테마 이름', function(name){ addTheme(cur, name); });
   if (t.dataset.act === 'menu') return openDrawer();
   if (t.dataset.act === 'rate') return openRating(cur.brand, cur.theme);
+  if (t.dataset.act === 'graderate') return openGradRating(cur.brand);
+  if (t.dataset.act === 'gradpick') return openGradPick(cur.brand, t.dataset.slot);
+  if (t.dataset.act === 'rmgradphoto') { removePoster('grad', cur.brand); return refreshGradPhoto(); }
+  if (t.dataset.act === 'grad') {
+    const br = findBrand(cur.brand);
+    if (br && brandDone(br) && !getGrad(cur.brand).gradedAt) {
+      const d = new Date(); const pad = n => String(n).padStart(2, '0');
+      setGrad(cur.brand, { gradedAt: d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate()) });
+    }
+    return go({ view:'grad', brand:cur.brand });
+  }
   if (t.dataset.rt) return go({ view:'theme', brand:t.dataset.rb, theme:t.dataset.rt });
+  if (t.dataset.gb) return go({ view:'grad', brand:t.dataset.gb });
   if (t.dataset.brand) return go({ view:'brand', brand:t.dataset.brand });
   if (t.dataset.theme) return go({ view:'theme', brand:cur.brand, theme:t.dataset.theme });
 
@@ -540,6 +645,18 @@ function openMenu(title, actions, note){
 }
 
 /* 추가 / 수정 / 삭제 */
+/* 졸업 후기의 처음 / 가장 좋았던 / 마지막 테마 고르기 */
+function openGradPick(brandId, slotKey){
+  const brand = findBrand(brandId);
+  const cfg = GRAD_SLOTS.find(x => x.key === slotKey);
+  if (!brand || !cfg) return;
+  const idField = slotKey + 'ThemeId';
+  const actions = brand.themes.map(th => ({ label:th.name, fn:function(){ setGrad(brandId, { [idField]:th.id }); render(false, true); } }));
+  actions.push({ label:'선택 해제', fn:function(){ setGrad(brandId, { [idField]:'' }); render(false, true); } });
+  actions.push({ label:'취소' });
+  openMenu(cfg.label + ' 선택', actions);
+}
+
 function commit(){
   if (!saveData()) alert('저장 공간이 부족해서 이번에만 보여요');
   render(false, true);
@@ -562,6 +679,8 @@ function deleteItem(brand, theme){
     store.brands = store.brands.filter(b => b !== brand);
     Object.keys(records).forEach(function(k){ if (k.indexOf(brand.id + '/') === 0) delete records[k]; });
     Object.keys(posterCache).forEach(function(k){ if (k.indexOf(brand.id + '/') === 0) dropPoster(k); });
+    delete records['grad/' + brand.id];
+    dropPoster('grad/' + brand.id);
   }
   try { localStorage.setItem(STORE_KEY, JSON.stringify(records)); } catch (e) {}
   commit();
@@ -684,16 +803,13 @@ function openImport(){
 }
 
 /* 별점 창: 별을 눌러 열고, 별 위를 쓸어서(또는 눌러서) 0.5점 단위로 고른 뒤 완료를 누르면 저장.
-   왼쪽 끝 밖으로 쓸면 0점, 바깥을 누르면 저장하지 않고 닫힘 */
-function openRating(b, t){
-  const brand = findBrand(b);
-  const theme = brand && brand.themes.find(x => x.id === t);
-  if (!theme) return;
-  let v = getRecord(b, t).difficulty, down = false, dragEnd = 0;
+   왼쪽 끝 밖으로 쓸면 0점, 바깥을 누르면 저장하지 않고 닫힘. (테마 별점 / 졸업 별점 공용) */
+function openRatingSheet(title, initial, onDone){
+  let v = initial, down = false, dragEnd = 0;
   const el = document.createElement('div');
   el.className = 'rate-bg';
   el.innerHTML = '<div class="glass rate">' +
-    '<div class="rate-name">' + esc(theme.name) + '</div>' +
+    '<div class="rate-name">' + esc(title) + '</div>' +
     '<div class="rate-val" id="rv"></div>' +
     '<div class="rstars" id="rs">' + starsRow(v) + '</div>' +
     '<div class="rate-hint">좌우로 쓸어서 선택 · 왼쪽 끝 밖으로 쓸면 0점</div>' +
@@ -718,8 +834,18 @@ function openRating(b, t){
     if (e.target === el) { if (Date.now() - dragEnd > 400) el.remove(); return; }
     const btn = e.target.closest('button');
     if (!btn || btn.dataset.r !== 'done') return;
-    if (!setRecord(b, t, { difficulty:v })) alert('저장 공간이 부족해서 이번에만 보여요');
     el.remove();
+    onDone(v);
+  });
+  set(v);
+}
+
+function openRating(b, t){
+  const brand = findBrand(b);
+  const theme = brand && brand.themes.find(x => x.id === t);
+  if (!theme) return;
+  openRatingSheet(theme.name, getRecord(b, t).difficulty, function(v){
+    if (!setRecord(b, t, { difficulty:v })) alert('저장 공간이 부족해서 이번에만 보여요');
     const box = document.getElementById('cardStars'), lbl = document.getElementById('starVal');
     const cur = stack[stack.length - 1];
     if (box && lbl && cur.brand === b && cur.theme === t) {
@@ -728,7 +854,21 @@ function openRating(b, t){
       lbl.classList.toggle('hint', !v);
     }
   });
-  set(v);
+}
+
+function openGradRating(brandId){
+  const brand = findBrand(brandId);
+  if (!brand) return;
+  openRatingSheet(brand.name + ' 졸업 별점', getGrad(brandId).rating, function(v){
+    if (!setGrad(brandId, { rating:v })) alert('저장 공간이 부족해서 이번에만 보여요');
+    const box = document.getElementById('gradStars'), lbl = document.getElementById('gradVal');
+    const cur = stack[stack.length - 1];
+    if (box && lbl && cur.view === 'grad' && cur.brand === brandId) {
+      paintStars(box, v);
+      lbl.textContent = fmtStar(v);
+      lbl.classList.toggle('hint', !v);
+    }
+  });
 }
 
 /* 왼쪽 메뉴: 메인 / 순위표 */
@@ -737,8 +877,9 @@ function openDrawer(){
   const el = document.createElement('div');
   el.className = 'drawer-bg';
   el.innerHTML = '<div class="glass drawer"><h3>기록</h3>' +
-    '<button class="press' + (cur === 'rank' ? '' : ' on') + '" data-root="home">메인</button>' +
-    '<button class="press' + (cur === 'rank' ? ' on' : '') + '" data-root="rank">순위표</button></div>';
+    '<button class="press' + (cur === 'home' ? ' on' : '') + '" data-root="home">메인</button>' +
+    '<button class="press' + (cur === 'rank' ? ' on' : '') + '" data-root="rank">순위표</button>' +
+    '<button class="press' + (cur === 'gradrank' ? ' on' : '') + '" data-root="gradrank">졸업 순위</button></div>';
   el.addEventListener('click', function(e){
     const b = e.target.closest('button');
     if (!b && e.target !== el) return;
@@ -883,23 +1024,40 @@ function refreshPoster(){
   if (wrap && theme) wrap.outerHTML = posterHtml(getRecord(cur.brand, cur.theme), theme, cur.brand + '/' + cur.theme);
 }
 
+function refreshGradPhoto(){
+  const cur = stack[stack.length - 1];
+  if (cur.view !== 'grad') return;
+  const wrap = document.querySelector('#gcard .poster-wrap');
+  if (!wrap) return;
+  const img = posterCache['grad/' + cur.brand] || '';
+  wrap.outerHTML = '<div class="poster-wrap"><label class="poster press">' +
+    (img ? '<img src="' + esc(img) + '" alt="졸업 사진">' : '<span class="ph"><b>＋</b>사진 추가</span>') +
+    '<input class="file" id="gradPhotoInput" type="file" accept="image/*"></label>' +
+    (img ? '<button class="poster-x glass press" data-act="rmgradphoto" aria-label="사진 삭제">×</button>' : '') +
+  '</div>';
+}
+
 app.addEventListener('change', function(e){
-  if (e.target.id !== 'posterInput' || !e.target.files[0]) return;
+  const isGrad = e.target.id === 'gradPhotoInput';
+  if ((!isGrad && e.target.id !== 'posterInput') || !e.target.files[0]) return;
   const cur = stack[stack.length - 1];
   shrinkImage(e.target.files[0], function(data){
     if (!data) return alert('사진을 불러오지 못했어요');
-    savePoster(cur.brand, cur.theme, data, function(ok){
+    const b = isGrad ? 'grad' : cur.brand, t = isGrad ? cur.brand : cur.theme;
+    savePoster(b, t, data, function(ok){
       if (!ok) alert('저장 공간이 부족해서 이번에만 보여요');
-      if (cur === stack[stack.length - 1]) refreshPoster();
+      if (cur === stack[stack.length - 1]) { if (isGrad) refreshGradPhoto(); else refreshPoster(); }
     });
   });
 });
 
-/* 후기: 입력하는 즉시 자동 저장 */
+/* 후기: 입력하는 즉시 자동 저장. 후기 칸은 줄이 늘면 높이도 같이 늘어납니다 */
 app.addEventListener('input', function(e){
-  if (e.target.id !== 'memo') return;
+  if (e.target.classList.contains('autosize')) autosizeEl(e.target);
   const cur = stack[stack.length - 1];
-  setRecord(cur.brand, cur.theme, { memo:e.target.value });
+  if (e.target.id === 'memo') return setRecord(cur.brand, cur.theme, { memo:e.target.value });
+  if (e.target.dataset.notekey === 'review') return setGrad(cur.brand, { review:e.target.value });
+  if (e.target.dataset.notekey) return setGrad(cur.brand, { [e.target.dataset.notekey]:e.target.value });
 });
 
 initPosters(function(){ render(false); });
